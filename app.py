@@ -225,8 +225,13 @@ def investigate():
 
     # Overall label and probability distribution
     if total_records > 0:
-        pos_ratio = round(pos_count / total_records, 4)
-        neg_ratio = round(neg_count / total_records, 4)
+        classified_count = pos_count + neg_count  # exclude uncertain from ratio denominator
+        if classified_count > 0:
+            pos_ratio = round(pos_count / classified_count, 4)
+            neg_ratio = round(neg_count / classified_count, 4)
+        else:
+            pos_ratio = 0.5
+            neg_ratio = 0.5
         sent_label = "Positive" if pos_count > neg_count else "Negative" if neg_count > pos_count else "uncertain"
         sent_probs = {"Positive": pos_ratio, "Negative": neg_ratio}
         is_sent_uncertain = (pos_count == neg_count) or (max(pos_ratio, neg_ratio) < 0.60)
@@ -240,12 +245,20 @@ def investigate():
     all_recs = inv_response.records
     hon_count = sum(1 for r in all_recs if r.get("metadata", {}).get("authenticity_label") == "HONEST")
     fake_count = sum(1 for r in all_recs if r.get("metadata", {}).get("authenticity_label") == "FAKE")
-    if total_records > 0:
-        hon_ratio = round(hon_count / total_records, 4)
-        fake_ratio = round(fake_count / total_records, 4)
+    labelled_count = hon_count + fake_count
+    if labelled_count > 0:
+        hon_ratio = round(hon_count / labelled_count, 4)
+        fake_ratio = round(fake_count / labelled_count, 4)
         auth_label = "HONEST" if hon_count >= fake_count else "FAKE"
         auth_probs = {"HONEST": hon_ratio, "FAKE": fake_ratio}
         is_auth_uncertain = (hon_count == fake_count)
+    elif total_records > 0:
+        # Records were collected but none carried an authenticity label
+        # (e.g. all are discussions without product context); fall back to topic prediction.
+        topic_pred = clf.predict(topic)
+        auth_label = topic_pred.authenticity.label
+        auth_probs = topic_pred.authenticity.probabilities
+        is_auth_uncertain = topic_pred.authenticity.is_uncertain
     else:
         topic_pred = clf.predict(topic)
         auth_label = topic_pred.authenticity.label

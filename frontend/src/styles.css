@@ -92,3 +92,48 @@
 .chart-unavailable{height:200px;display:flex;align-items:center;justify-content:center;font:10px var(--mono);color:var(--muted);border:1px dashed var(--line)}
 /* Inline code in results disclaimer */
 .results-disclaimer code{background:#ede7f0;padding:1px 5px;font-size:8px}
+
+/* ============================================================
+   REPORT PAGE — data-driven report (sections 01–07)
+   ============================================================ */
+
+/* Source coverage table */
+.report-source-table{margin:14px 0 10px;border:1px solid var(--line);font:9px var(--mono)}
+.report-source-row{display:grid;grid-template-columns:140px 60px 1fr;gap:0;padding:8px 12px;border-bottom:1px solid var(--line)}
+.report-source-row:last-child{border-bottom:0}
+.report-source-header{background:#f4f1f7;font-weight:700;letter-spacing:.07em;color:var(--muted)}
+
+/* Charts embedded in report */
+.report-chart-wrap{margin:14px 0 6px;border:1px solid var(--line);padding:16px 10px 10px;background:#faf7f2}
+.report-chart-label{font:8px var(--mono);letter-spacing:.1em;color:var(--muted);margin-bottom:6px}
+.report-chart-empty{padding:16px;background:#f4f1f7;border:1px dashed var(--line);font:9px var(--mono);color:var(--muted);text-align:center;margin:12px 0}
+
+/* Chronological evidence log */
+.report-day-group{margin:16px 0 0}
+.report-day-header{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:#f0eaf6;border-left:3px solid var(--purple);font:9px var(--mono);letter-spacing:.08em;font-weight:700;color:#3a2d4a;margin-bottom:4px}
+.report-evidence-row{padding:10px 12px;border:1px solid var(--line);border-top:0;background:#fff;display:flex;flex-direction:column;gap:3px}
+.report-evidence-row:first-of-type{border-top:1px solid var(--line)}
+.report-evidence-meta{display:flex;align-items:center;gap:7px;font:8px var(--mono);color:var(--muted);flex-wrap:wrap}
+.report-evidence-type{background:#f3f4f6;padding:1px 5px;border-radius:2px;font-size:7.5px;text-transform:capitalize;color:#6b7280}
+.report-evidence-author{color:#6b7280}
+.report-evidence-footer{display:flex;align-items:center;gap:10px;margin-top:3px;flex-wrap:wrap}
+.report-evidence-stat{font:8px var(--mono);color:var(--muted)}
+.report-evidence-link{display:flex;align-items:center;gap:3px;color:#4f46e5;font:8px var(--mono);margin-left:auto;text-decoration:none}
+.report-evidence-link:hover{text-decoration:underline}
+
+/* Observations ordered list */
+.report-observations-list{padding:0 0 0 18px;margin:10px 0;font:10px/1.75 var(--mono);color:#4e4943;max-width:650px}
+.report-observations-list li{padding:4px 0}
+.report-observations-list b{color:#171716}
+
+/* Footer strip */
+.report-doc-foot{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;font:8px var(--mono);color:var(--muted)}
+
+/* Mobile */
+@media(max-width:640px){
+  .report-source-row{grid-template-columns:100px 50px 1fr;font-size:7.5px;padding:6px 8px}
+  .report-day-header{font-size:7.5px}
+  .report-evidence-row{padding:8px 8px}
+  .report-observations-list{font-size:9px}
+  .report-doc-foot{flex-direction:column;gap:4px}
+}

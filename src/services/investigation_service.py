@@ -2,17 +2,20 @@
 GhostSignal — Investigation Service
 ====================================
 Orchestrates sequential/concurrent collection across public information sources
-(Hacker News, Bluesky, and GDELT DOC API), combines and normalises records into
-the shared GHOSTSIGNAL schema, attaches sentiment predictions and confidence
-scores to every record, calculates per-source statistics, preserves provenance,
-and provides resilient failure handling.
+(Hacker News, Bluesky, DEV Community, Stack Exchange, Discourse, and GDELT DOC API),
+combines and normalises records into the shared GHOSTSIGNAL schema, attaches sentiment
+predictions and confidence scores to every record, calculates per-source statistics,
+preserves provenance, and provides resilient failure handling.
 
 Pipeline order
 --------------
-1. Hacker News   — always attempted
-2. Bluesky       — always attempted
-3. GDELT         — attempted if available; skipped gracefully after 2 failures
-                   per investigation to avoid flooding the rate-limited endpoint.
+1. Hacker News    — concurrent with Bluesky
+2. Bluesky        — concurrent with Hacker News
+3. DEV Community  — concurrent with Stack Exchange and Discourse
+4. Stack Exchange — concurrent with DEV Community and Discourse
+5. Discourse      — concurrent with DEV Community and Stack Exchange
+6. GDELT          — sequential, after all discussions; skipped gracefully after 2
+                    rate-limit failures to avoid flooding the 1-req/5s endpoint.
 """
 
 from __future__ import annotations
@@ -30,9 +33,21 @@ from src.collectors.discussions.bluesky_collector import (
     BlueskyCollector,
     BlueskyQueryResult,
 )
+from src.collectors.discussions.devcommunity_collector import (
+    DevCommunityCollector,
+    DevCommunityQueryResult,
+)
+from src.collectors.discussions.discourse_collector import (
+    DiscourseCollector,
+    DiscourseQueryResult,
+)
 from src.collectors.discussions.hackernews_collector import (
     HackerNewsCollector,
     HackerNewsQueryResult,
+)
+from src.collectors.discussions.stackexchange_collector import (
+    StackExchangeCollector,
+    StackExchangeQueryResult,
 )
 from src.collectors.news.gdelt_collector import (
     GDELTDocCollector,
@@ -69,17 +84,23 @@ class InvestigationResponse(BaseModel):
     news_count: int = Field(..., description="Count of news articles retrieved from GDELT")
     discussions_count: int = Field(
         ...,
-        description="Count of discussion records retrieved from Hacker News and Bluesky combined"
+        description="Count of discussion records from all discussion collectors combined"
     )
     hn_count: int = Field(default=0, description="Count of records from Hacker News")
     bluesky_count: int = Field(default=0, description="Count of records from Bluesky")
+    devcommunity_count: int = Field(default=0, description="Count of records from DEV Community")
+    stackexchange_count: int = Field(default=0, description="Count of records from Stack Exchange")
+    discourse_count: int = Field(default=0, description="Count of records from Discourse")
     news_records: List[Dict[str, Any]] = Field(default_factory=list, description="Normalised GDELT news records")
     discussion_records: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="Normalised HN + Bluesky discussion records (combined)"
+        description="Normalised discussion records from all discussion collectors combined"
     )
     hn_records: List[Dict[str, Any]] = Field(default_factory=list, description="Normalised Hacker News records")
     bluesky_records: List[Dict[str, Any]] = Field(default_factory=list, description="Normalised Bluesky records")
+    devcommunity_records: List[Dict[str, Any]] = Field(default_factory=list, description="Normalised DEV Community records")
+    stackexchange_records: List[Dict[str, Any]] = Field(default_factory=list, description="Normalised Stack Exchange records")
+    discourse_records: List[Dict[str, Any]] = Field(default_factory=list, description="Normalised Discourse records")
     records: List[Dict[str, Any]] = Field(default_factory=list, description="All combined normalised records")
     sentiment_stats: Dict[str, Any] = Field(
         default_factory=dict,
@@ -232,14 +253,18 @@ _GDELT_MAX_FAILURES = 2
 class InvestigationService:
     """
     Service coordinating automatic data collection across Hacker News, Bluesky,
-    and GDELT, followed by automated sentiment analysis and statistics generation.
+    DEV Community, Stack Exchange, Discourse, and GDELT, followed by automated
+    sentiment analysis and statistics generation.
 
     Pipeline order
     --------------
-    1. Hacker News  (concurrent with Bluesky)
-    2. Bluesky      (concurrent with Hacker News)
-    3. GDELT        (sequential, after discussions; skipped after _GDELT_MAX_FAILURES rate-limit
-                     responses to avoid hammering the 1-req/5s endpoint)
+    1. Hacker News   (concurrent with Bluesky)
+    2. Bluesky       (concurrent with Hacker News)
+    3. DEV Community (concurrent with Stack Exchange and Discourse)
+    4. Stack Exchange(concurrent with DEV Community and Discourse)
+    5. Discourse     (concurrent with DEV Community and Stack Exchange)
+    6. GDELT         (sequential, after all discussions; skipped after _GDELT_MAX_FAILURES
+                      rate-limit responses per investigation)
     """
 
     def __init__(
@@ -247,11 +272,17 @@ class InvestigationService:
         gdelt_collector: Optional[GDELTDocCollector] = None,
         hn_collector: Optional[HackerNewsCollector] = None,
         bluesky_collector: Optional[BlueskyCollector] = None,
-        max_workers: int = 2,
+        devcommunity_collector: Optional[DevCommunityCollector] = None,
+        stackexchange_collector: Optional[StackExchangeCollector] = None,
+        discourse_collector: Optional[DiscourseCollector] = None,
+        max_workers: int = 5,
     ):
         self.gdelt_collector = gdelt_collector or GDELTDocCollector()
         self.hn_collector = hn_collector or HackerNewsCollector()
         self.bluesky_collector = bluesky_collector or BlueskyCollector()
+        self.devcommunity_collector = devcommunity_collector or DevCommunityCollector()
+        self.stackexchange_collector = stackexchange_collector or StackExchangeCollector()
+        self.discourse_collector = discourse_collector or DiscourseCollector()
         self.max_workers = max_workers
 
     def investigate(
@@ -260,6 +291,9 @@ class InvestigationService:
         gdelt_limit: int = 50,
         hn_limit: int = 50,
         bluesky_limit: int = 50,
+        devcommunity_limit: int = 30,
+        stackexchange_limit: int = 30,
+        discourse_limit_per_forum: int = 15,
         timespan: Optional[str] = "7d",
         start_date: Optional[Union[datetime, str]] = None,
         end_date: Optional[Union[datetime, str]] = None,
@@ -269,12 +303,13 @@ class InvestigationService:
         """
         Start an investigation:
 
-        1. Concurrently query Hacker News and Bluesky (discussions).
-        2. Sequentially query GDELT (news) — skipped gracefully if rate-limited
+        1. Concurrently query Hacker News and Bluesky (batch 1 — fast social).
+        2. Concurrently query DEV Community, Stack Exchange, and Discourse (batch 2 — tech forums).
+        3. Sequentially query GDELT (news) — skipped gracefully if rate-limited
            more than _GDELT_MAX_FAILURES times in this call.
-        3. Combine records in the shared schema.
-        4. Pass collected text to classifier and attach predictions + confidence.
-        5. Calculate per-source and aggregate sentiment statistics.
+        4. Combine records in the shared schema.
+        5. Pass collected text to classifier and attach predictions + confidence.
+        6. Calculate per-source and aggregate sentiment statistics.
         """
         if not query or not query.strip():
             raise ValueError("Field 'query' must be a non-empty string.")
@@ -285,103 +320,139 @@ class InvestigationService:
 
         hn_records: List[Dict[str, Any]] = []
         bluesky_records: List[Dict[str, Any]] = []
+        devcommunity_records: List[Dict[str, Any]] = []
+        stackexchange_records: List[Dict[str, Any]] = []
+        discourse_records: List[Dict[str, Any]] = []
         news_records: List[Dict[str, Any]] = []
         collector_errors: Dict[str, str] = {}
 
-        log.info(
-            "Starting investigation [%s] for query: '%s'",
-            inv_id,
-            clean_query,
-        )
+        log.info("Starting investigation [%s] for query: '%s'", inv_id, clean_query)
 
         # ------------------------------------------------------------------
-        # Step 1 & 2 — Hacker News + Bluesky (concurrent)
+        # Batch 1 — Hacker News + Bluesky (concurrent)
         # ------------------------------------------------------------------
         def fetch_hackernews() -> HackerNewsQueryResult:
             return self.hn_collector.collect(
-                query=clean_query,
-                limit=hn_limit,
-                timespan=timespan,
-                start_date=start_date,
-                end_date=end_date,
-                raise_on_error=True,
+                query=clean_query, limit=hn_limit, timespan=timespan,
+                start_date=start_date, end_date=end_date, raise_on_error=True,
             )
 
         def fetch_bluesky() -> BlueskyQueryResult:
             return self.bluesky_collector.collect(
-                query=clean_query,
-                limit=bluesky_limit,
-                raise_on_error=True,
+                query=clean_query, limit=bluesky_limit, raise_on_error=True,
             )
 
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        with ThreadPoolExecutor(max_workers=2) as executor:
             future_hn = executor.submit(fetch_hackernews)
             future_bsky = executor.submit(fetch_bluesky)
 
-            # Hacker News
             try:
                 hn_result = future_hn.result()
                 hn_records = hn_result.to_records()
                 if hn_result.errors:
                     collector_errors["hackernews"] = "; ".join(hn_result.errors)
             except Exception as e:
-                log.error("Hacker News collection failed in investigation [%s]: %s", inv_id, e)
+                log.error("Hacker News failed in [%s]: %s", inv_id, e)
                 collector_errors["hackernews"] = str(e)
 
-            # Bluesky
             try:
                 bsky_result = future_bsky.result()
                 bluesky_records = bsky_result.to_records()
                 if bsky_result.errors:
                     collector_errors["bluesky"] = "; ".join(bsky_result.errors)
             except Exception as e:
-                log.error("Bluesky collection failed in investigation [%s]: %s", inv_id, e)
+                log.error("Bluesky failed in [%s]: %s", inv_id, e)
                 collector_errors["bluesky"] = str(e)
 
         # ------------------------------------------------------------------
-        # Step 3 — GDELT (sequential; cap at _GDELT_MAX_FAILURES rate-limit hits)
+        # Batch 2 — DEV Community + Stack Exchange + Discourse (concurrent)
         # ------------------------------------------------------------------
-        gdelt_failures = 0
-        try:
-            gdelt_result = self.gdelt_collector.collect(
-                query=clean_query,
-                max_records=gdelt_limit,
-                timespan=timespan,
-                start_date=start_date,
-                end_date=end_date,
-                raise_on_error=True,
+        def fetch_devcommunity() -> DevCommunityQueryResult:
+            return self.devcommunity_collector.collect(
+                query=clean_query, limit=devcommunity_limit, raise_on_error=True,
             )
-            news_records = gdelt_result.to_records()
-            if gdelt_result.errors:
-                # Errors inside the result container are non-fatal (e.g. dedup warnings)
-                collector_errors["gdelt"] = "; ".join(gdelt_result.errors)
-        except GDELTRateLimitError as e:
-            gdelt_failures += 1
-            log.warning(
-                "GDELT rate-limited in investigation [%s] (failure %d/%d): %s",
-                inv_id, gdelt_failures, _GDELT_MAX_FAILURES, e,
+
+        def fetch_stackexchange() -> StackExchangeQueryResult:
+            return self.stackexchange_collector.collect(
+                query=clean_query, limit=stackexchange_limit, raise_on_error=True,
             )
-            if gdelt_failures >= _GDELT_MAX_FAILURES:
-                log.warning(
-                    "GDELT skipped for investigation [%s]: reached %d rate-limit failures.",
-                    inv_id, gdelt_failures,
-                )
-            collector_errors["gdelt"] = f"Rate limited ({gdelt_failures} attempt(s)): {e}"
-        except Exception as e:
-            log.error("GDELT collection failed in investigation [%s]: %s", inv_id, e)
-            collector_errors["gdelt"] = str(e)
+
+        def fetch_discourse() -> DiscourseQueryResult:
+            return self.discourse_collector.collect(
+                query=clean_query, limit_per_forum=discourse_limit_per_forum, raise_on_error=True,
+            )
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_dev = executor.submit(fetch_devcommunity)
+            future_se = executor.submit(fetch_stackexchange)
+            future_disc = executor.submit(fetch_discourse)
+
+            try:
+                dev_result = future_dev.result()
+                devcommunity_records = dev_result.to_records()
+                if dev_result.errors:
+                    collector_errors["devcommunity"] = "; ".join(dev_result.errors)
+            except Exception as e:
+                log.error("DEV Community failed in [%s]: %s", inv_id, e)
+                collector_errors["devcommunity"] = str(e)
+
+            try:
+                se_result = future_se.result()
+                stackexchange_records = se_result.to_records()
+                if se_result.errors:
+                    collector_errors["stackexchange"] = "; ".join(se_result.errors)
+            except Exception as e:
+                log.error("Stack Exchange failed in [%s]: %s", inv_id, e)
+                collector_errors["stackexchange"] = str(e)
+
+            try:
+                disc_result = future_disc.result()
+                discourse_records = disc_result.to_records()
+                if disc_result.errors:
+                    collector_errors["discourse"] = "; ".join(disc_result.errors)
+            except Exception as e:
+                log.error("Discourse failed in [%s]: %s", inv_id, e)
+                collector_errors["discourse"] = str(e)
 
         # ------------------------------------------------------------------
-        # Step 4 — Sentiment analysis
+        # Step 6 — GDELT (temporarily disabled)
         # ------------------------------------------------------------------
-        discussion_records = hn_records + bluesky_records
+        # gdelt_failures = 0
+        # try:
+        #     gdelt_result = self.gdelt_collector.collect(
+        #         query=clean_query, max_records=gdelt_limit, timespan=timespan,
+        #         start_date=start_date, end_date=end_date, raise_on_error=True,
+        #     )
+        #     news_records = gdelt_result.to_records()
+        #     if gdelt_result.errors:
+        #         collector_errors["gdelt"] = "; ".join(gdelt_result.errors)
+        # except GDELTRateLimitError as e:
+        #     gdelt_failures += 1
+        #     log.warning(
+        #         "GDELT rate-limited in [%s] (failure %d/%d): %s",
+        #         inv_id, gdelt_failures, _GDELT_MAX_FAILURES, e,
+        #     )
+        #     if gdelt_failures >= _GDELT_MAX_FAILURES:
+        #         log.warning("GDELT skipped for [%s]: reached %d rate-limit failures.", inv_id, gdelt_failures)
+        #     collector_errors["gdelt"] = f"Rate limited ({gdelt_failures} attempt(s)): {e}"
+        # except Exception as e:
+        #     log.error("GDELT failed in [%s]: %s", inv_id, e)
+        #     collector_errors["gdelt"] = str(e)
+
+        # ------------------------------------------------------------------
+        # Sentiment analysis
+        # ------------------------------------------------------------------
+        discussion_records = (
+            hn_records + bluesky_records
+            + devcommunity_records + stackexchange_records + discourse_records
+        )
 
         if classifier is not None:
             attach_sentiment_to_records(news_records, classifier)
             attach_sentiment_to_records(discussion_records, classifier)
 
         # ------------------------------------------------------------------
-        # Step 5 — Statistics
+        # Statistics
         # ------------------------------------------------------------------
         sentiment_stats = compute_sentiment_stats(news_records, discussion_records)
 
@@ -391,18 +462,24 @@ class InvestigationService:
         discussions_count = len(discussion_records)
         hn_count = len(hn_records)
         bluesky_count = len(bluesky_records)
+        devcommunity_count = len(devcommunity_records)
+        stackexchange_count = len(stackexchange_records)
+        discourse_count = len(discourse_records)
 
-        # Evaluate status
-        has_news_error = "gdelt" in collector_errors
-        has_hn_error = "hackernews" in collector_errors
-        has_bsky_error = "bluesky" in collector_errors
-        all_failed = has_news_error and has_hn_error and has_bsky_error
+        # Evaluate status — any discussion or news collector error counts
+        discussion_sources = ("hackernews", "bluesky", "devcommunity", "stackexchange", "discourse")
+        any_error = bool(collector_errors)
+        # GDELT is temporarily disabled; all_failed checks only active sources
+        all_failed = all(
+            src in collector_errors
+            for src in discussion_sources
+        )
 
         if all_failed:
             status = "error"
-        elif (has_news_error or has_hn_error or has_bsky_error) and total_records == 0:
+        elif any_error and total_records == 0:
             status = "error"
-        elif has_news_error or has_hn_error or has_bsky_error:
+        elif any_error:
             status = "partial"
         elif total_records == 0:
             status = "empty"
@@ -411,9 +488,10 @@ class InvestigationService:
 
         log.info(
             "Investigation [%s] completed: status='%s', total=%d "
-            "(news=%d, hn=%d, bluesky=%d), errors=%s",
+            "(news=%d, hn=%d, bsky=%d, dev=%d, se=%d, discourse=%d), errors=%s",
             inv_id, status, total_records,
             news_count, hn_count, bluesky_count,
+            devcommunity_count, stackexchange_count, discourse_count,
             list(collector_errors.keys()),
         )
 
@@ -426,10 +504,16 @@ class InvestigationService:
             discussions_count=discussions_count,
             hn_count=hn_count,
             bluesky_count=bluesky_count,
+            devcommunity_count=devcommunity_count,
+            stackexchange_count=stackexchange_count,
+            discourse_count=discourse_count,
             news_records=news_records,
             discussion_records=discussion_records,
             hn_records=hn_records,
             bluesky_records=bluesky_records,
+            devcommunity_records=devcommunity_records,
+            stackexchange_records=stackexchange_records,
+            discourse_records=discourse_records,
             records=combined_records,
             sentiment_stats=sentiment_stats,
             collector_errors=collector_errors,

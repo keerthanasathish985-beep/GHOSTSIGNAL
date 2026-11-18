@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, Check, Download, FileText,
+  ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, Check, FileText,
   Globe2, Search, ShieldAlert, X, Zap, AlertTriangle, CheckCircle2, HelpCircle
 } from "lucide-react";
 
@@ -311,14 +311,18 @@ function Investigation({ topic, selected, stage, fetchError, onBack, onSkip }: {
 type TimelineEntry = { day: string; all: number; positive: number; negative: number };
 
 function ActivityChart({ mode, timeline }: { mode: ChartMode; timeline: TimelineEntry[] }) {
-  const max = Math.max(...timeline.map(d => d.all), 10);
+  const primary = mode === "activity" ? "all" : "positive";
+  // In sentiment mode scale Y off whichever is larger: positive or negative.
+  const max = mode === "activity"
+    ? Math.max(...timeline.map(d => d.all), 10)
+    : Math.max(...timeline.map(d => Math.max(d.positive, d.negative)), 10);
   const x = (index: number) => 48 + index * (572 / Math.max(timeline.length - 1, 1));
   const y = (value: number) => 166 - (value / max) * 142;
   const pathFor = (key: keyof TimelineEntry) =>
     timeline.map((item, index) => `${index === 0 ? "M" : "L"} ${x(index)} ${y(item[key] as number)}`).join(" ");
   const areaFor = (key: keyof TimelineEntry) =>
     `${pathFor(key)} L ${x(timeline.length - 1)} 166 L ${x(0)} 166 Z`;
-  const primary = mode === "activity" ? "all" : "positive";
+  // Peak marker always tracks the primary series for the current mode.
   const peakIdx = timeline.reduce((best, d, i) => d[primary] > timeline[best][primary] ? i : best, 0);
   return <svg className="activity-chart" viewBox="0 0 650 215" role="img" aria-label={mode === "activity" ? "Observed activity over time" : "Positive and negative activity over time"}>
     <defs>
@@ -389,7 +393,7 @@ function Results({ topic, invResult, onHome, onReport }: {
     )}
     {invResult?.status === "empty" && (
       <div className="investigation-fetch-error" style={{ marginBottom: "1.2rem", background: "#eff6ff", borderColor: "#3b82f6", color: "#1e40af" }}>
-        <CheckCircle2 size={15}/> <b>No Records Found:</b> Hacker News, Bluesky, and GDELT were all queried but no matching records were found for "{topic}".
+        <CheckCircle2 size={15}/> <b>No Records Found:</b> All configured sources were queried but returned no matching records for "{topic}".
       </div>
     )}
 
@@ -397,8 +401,8 @@ function Results({ topic, invResult, onHome, onReport }: {
       {[
         { value: metrics ? String(metrics.records_total) : "—", label: "Records analysed", className: "metric-yellow" },
         { value: invResult ? String(invResult.news_count ?? 0) : "—", label: "News (GDELT)", className: "metric-purple" },
-        { value: invResult ? String(invResult.hn_count ?? invResult.discussions_count ?? 0) : "—", label: "Discussions (HN)", className: "metric-pink" },
-        { value: invResult ? String(invResult.bluesky_count ?? 0) : "—", label: "Discussions (Bluesky)", className: "metric-purple" },
+        { value: invResult ? String(invResult.hn_count ?? 0) : "—", label: "Hacker News", className: "metric-pink" },
+        { value: invResult ? String(invResult.bluesky_count ?? 0) : "—", label: "Bluesky", className: "metric-purple" },
         { value: metrics ? `${metrics.positive_pct}%` : "—", label: "Positive sentiment", className: "metric-yellow" },
       ].map((metric, index) => (
         <motion.div className={`metric ${metric.className}`} key={metric.label} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .12 + index * .09 }}>
@@ -407,8 +411,8 @@ function Results({ topic, invResult, onHome, onReport }: {
       ))}
     </section>
 
-    {/* Activity chart — real timeline data */}
-    <section className="activity-section">
+    {/* Activity chart — only shown when records exist */}
+    {(metrics?.records_total ?? 0) > 0 && <section className="activity-section">
       <div className="chart-head">
         <div>
           <div className="section-overline"><i/> SIGNAL ACTIVITY</div>
@@ -434,14 +438,14 @@ function Results({ topic, invResult, onHome, onReport }: {
           <small>Derived from model probability scores</small>
         </div>
       )}
-    </section>
+    </section>}
 
-    {/* Model output cards — real classifier results */}
-    <section className="classification-section">
+    {/* Model output cards — only shown when records exist */}
+    {(metrics?.records_total ?? 0) > 0 && <section className="classification-section">
       <div className="classification-heading">
         <div className="section-overline"><i/> MODEL OUTPUT</div>
         <h2>Classifier<br/>signals.</h2>
-        <p>Sentiment is rating-derived. Authenticity reflects reviewer profile labels, not per-review fraud verdicts.</p>
+        <p>Sentiment and authenticity signals derived from classified records.</p>
       </div>
       <div className="model-output-cards">
         <motion.div className="model-card" initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: .08 }}>
@@ -472,9 +476,9 @@ function Results({ topic, invResult, onHome, onReport }: {
                 </div>
               )}
             </div>
-          ) : <p className="model-card-caveat">Model not available.</p>}
+          ) : <p className="model-card-caveat">No classified records.</p>}
           {sent?.is_uncertain && <div className="analyser-uncertain"><HelpCircle size={11}/> Low confidence — treat as uncertain</div>}
-          <p className="model-card-caveat">{sent?.caveat ?? "Rating-derived labels (1–2★ → Negative, 4–5★ → Positive)."}</p>
+          <p className="model-card-caveat">{sent?.caveat ?? "TF-IDF + Logistic Regression on collected records."}</p>
         </motion.div>
 
         <motion.div className="model-card" initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: .18 }}>
@@ -493,20 +497,34 @@ function Results({ topic, invResult, onHome, onReport }: {
                 <b>{(authFake * 100).toFixed(1)}%</b>
               </div>
             </div>
-          ) : <p className="model-card-caveat">Model not available.</p>}
+          ) : <p className="model-card-caveat">No labelled records.</p>}
           {auth?.is_uncertain && <div className="analyser-uncertain"><HelpCircle size={11}/> Low confidence — treat as uncertain</div>}
           <p className="model-card-caveat">{auth?.caveat ?? "Reviewer-profile labels. FAKE does not prove an individual review is fraudulent."}</p>
         </motion.div>
       </div>
-    </section>
+    </section>}
 
     <section className="observations">
       <div className="observations-title"><div className="section-overline"><i/> EVIDENCE NOTES</div><h2>Key observations</h2></div>
       <ul>
-        <li><span>01</span>Collected <b>{invResult?.news_count ?? 0} news articles</b> from GDELT ({invResult?.sentiment_stats?.news.positive ?? metrics?.news_positive ?? 0} pos, {invResult?.sentiment_stats?.news.negative ?? metrics?.news_negative ?? 0} neg), <b>{invResult?.hn_count ?? 0} items</b> from Hacker News, and <b>{invResult?.bluesky_count ?? 0} posts</b> from Bluesky ({invResult?.sentiment_stats?.discussions.positive ?? metrics?.discussions_positive ?? 0} pos, {invResult?.sentiment_stats?.discussions.negative ?? metrics?.discussions_negative ?? 0} neg).</li>
-        <li><span>02</span>Overall classified sentiment is <b>{sentLabel}</b> with <b>{metrics ? metrics.positive_pct : 50}% positive</b> across {metrics?.records_total ?? 0} analysed records.</li>
-        <li><span>03</span>Authenticity signal is <b>{authLabel}</b> ({(authHon * 100).toFixed(0)}% honest profile match) — reflects reviewer-associated patterns, not individual verified claims.</li>
-        <li><span>04</span>The available evidence does not establish coordinated activity, sponsorship or common intent.</li>
+        <li><span>01</span>
+          Collected{" "}
+          <b>{invResult?.news_count ?? 0} news articles</b> (GDELT),{" "}
+          <b>{invResult?.hn_count ?? 0} items</b> (Hacker News),{" "}
+          <b>{invResult?.bluesky_count ?? 0} posts</b> (Bluesky),{" "}
+          <b>{(invResult as any)?.devcommunity_count ?? 0} articles</b> (DEV Community),{" "}
+          <b>{(invResult as any)?.stackexchange_count ?? 0} questions</b> (Stack Exchange),{" "}
+          <b>{(invResult as any)?.discourse_count ?? 0} topics</b> (Discourse).
+          Total: <b>{metrics?.records_total ?? 0} records</b>.
+        </li>
+        {(metrics?.records_total ?? 0) > 0 && <>
+          <li><span>02</span>Overall classified sentiment is <b>{sentLabel}</b> with <b>{metrics ? metrics.positive_pct : 0}% positive</b> across {metrics?.records_total ?? 0} analysed records.</li>
+          <li><span>03</span>Authenticity signal is <b>{authLabel}</b> ({(authHon * 100).toFixed(0)}% honest profile match) — reflects reviewer-associated patterns, not individual verified claims.</li>
+          <li><span>04</span>The available evidence does not establish coordinated activity, sponsorship or common intent.</li>
+        </>}
+        {(metrics?.records_total ?? 0) === 0 && (
+          <li><span>02</span>No records were collected across any active source for this query. The search may be too specific, sources may be unavailable, or the topic has no indexed public discussion.</li>
+        )}
       </ul>
     </section>
 
@@ -597,22 +615,464 @@ function Results({ topic, invResult, onHome, onReport }: {
   </motion.main>;
 }
 
-function Report({ topic, investigationId, onBack }: { topic: string; investigationId?: string; onBack: () => void }) {
-  const invId = investigationId || "GS-0001";
-  return <motion.main className="report-screen info-page" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
-    <div className="screen-index"><span>04 /</span><b>Report</b></div>
-    <div className="info-hero report-hero"><div className="section-overline"><i/> INVESTIGATION DOCUMENT / {invId}</div><h1>THE<br/>EVIDENCE<br/>RECORD<span>.</span></h1><p>Full investigation report for <b>{topic}</b>, prepared from structured findings and source references.</p></div>
-    <article className="report-document">
-      <div className="report-doc-head"><Brand/><span>{invId} / REPORT PREVIEW</span></div>
-      <div className="report-cover-line"><span>INVESTIGATION REPORT</span><span>17 NOVEMBER 2026</span></div>
-      <h2>{topic}</h2><p className="report-subtitle">Public-source narrative and content analysis</p>
-      <h3>01 / Executive summary</h3><p>This section will contain a Gemini-generated summary based exclusively on structured findings from the investigation pipeline. It will distinguish direct observations from interpretations and retain the limitations of the available evidence.</p>
-      <h3>02 / Methodology and source coverage</h3><p>The report will document the sources successfully obtained, record normalisation, classification methodology, timeline analysis and similarity assessment.</p>
-      <h3>03 / Evidence and observations</h3><p>Detailed claims will reference record identifiers and source URLs. Similar wording will be presented as a similarity finding, not proof of shared authorship or coordination.</p>
-      <h3>04 / Limitations and conclusion</h3><p>The earliest observed record is not necessarily the origin of a narrative. Missing data, access limitations and uncertainty will be explicitly stated.</p>
-    </article>
-    <div className="report-actions"><span><ShieldAlert size={14}/> Gemini report writing and PDF export are not connected yet.</span><button className="dark-action" disabled><Download size={15}/> PDF not connected</button><button className="outline-action" onClick={onBack}><ArrowLeft size={14}/> Back to findings</button></div>
-  </motion.main>;
+// ---------------------------------------------------------------------------
+// Report — full data-driven investigative report with both charts embedded
+// ---------------------------------------------------------------------------
+function Report({ topic, investigationId, invResult, onBack }: {
+  topic: string;
+  investigationId?: string;
+  invResult: InvestigationResult | null;
+  onBack: () => void;
+}) {
+  const invId   = investigationId || "GS-0001";
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+
+  const timeline  = invResult?.timeline ?? [];
+  const metrics   = invResult?.metrics;
+  const sent      = invResult?.sentiment;
+  const auth      = invResult?.authenticity;
+  const stats     = invResult?.sentiment_stats;
+  const records   = invResult?.records ?? [];
+  const sources   = invResult?.sources ?? [];
+  const errors    = invResult?.collector_errors ?? {};
+
+  const sentPos   = sent?.probabilities?.Positive ?? 0;
+  const sentNeg   = sent?.probabilities?.Negative ?? 0;
+  const authHon   = auth?.probabilities?.HONEST   ?? 0;
+  const authFake  = auth?.probabilities?.FAKE      ?? 0;
+  const sentLabel = sent?.label  ?? "—";
+  const authLabel = auth?.label  ?? "—";
+  const sentColor = sentLabel === "Positive" ? "#22a06b" : sentLabel === "Negative" ? "#c8372d" : "#8d55df";
+  const authColor = authLabel === "HONEST"   ? "#22a06b" : authLabel === "FAKE"     ? "#c8372d" : "#8d55df";
+
+  const totalRecords  = metrics?.records_total  ?? 0;
+  const newsCount     = invResult?.news_count     ?? 0;
+  const hnCount       = invResult?.hn_count       ?? 0;
+  const bskyCount     = invResult?.bluesky_count  ?? 0;
+  const posCount      = metrics?.positive_count   ?? 0;
+  const negCount      = metrics?.negative_count   ?? 0;
+  const uncCount      = metrics?.uncertain_count  ?? 0;
+  const posPct        = metrics?.positive_pct     ?? 0;
+
+  // Timeline peak day
+  const peakDay = timeline.length
+    ? timeline.reduce((best, d) => d.all > best.all ? d : best, timeline[0])
+    : null;
+
+  // Chronological record groups by date
+  const byDate: Record<string, any[]> = {};
+  for (const rec of records) {
+    const day = rec.published_at ? rec.published_at.substring(0, 10) : "Undated";
+    (byDate[day] = byDate[day] ?? []).push(rec);
+  }
+  const sortedDates = Object.keys(byDate).sort((a, b) => {
+    if (a === "Undated") return 1;
+    if (b === "Undated") return -1;
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+
+  const sourceColor = (src: string) =>
+    src === "gdelt" ? "#7c3aed" : src === "bluesky" ? "#0085ff" :
+    src === "devcommunity" ? "#22a06b" : src === "stackexchange" ? "#f97316" :
+    src === "discourse" ? "#ec4899" : "#ea580c";
+
+  const sourceLabel = (src: string) =>
+    src === "gdelt" ? "GDELT News" : src === "bluesky" ? "Bluesky" :
+    src === "devcommunity" ? "DEV Community" : src === "stackexchange" ? "Stack Exchange" :
+    src === "discourse" ? "Discourse" : "Hacker News";
+
+  return (
+    <motion.main
+      className="report-screen info-page"
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+    >
+      {/* ── Cover ───────────────────────────────────────────────── */}
+      <article className="report-document">
+
+        <div className="report-doc-head">
+          <Brand/>
+          <span>{invId} · {dateStr}</span>
+        </div>
+
+        <div className="report-cover-line">
+          <span>INVESTIGATION REPORT</span>
+          <span>{dateStr.toUpperCase()}</span>
+        </div>
+        <h2 style={{ marginTop: "10px" }}>{topic || "Untitled Investigation"}</h2>
+        <p className="report-subtitle">
+          Public-source narrative and sentiment analysis · {totalRecords} records
+          across {sources.length || "multiple"} source{sources.length !== 1 ? "s" : ""}
+        </p>
+
+        {/* ── 01 Executive Summary ─────────────────────────────── */}
+        <h3>01 / Executive Summary</h3>
+
+        {invResult ? (() => {
+          const devCount  = (invResult as any).devcommunity_count  ?? 0;
+          const seCount   = (invResult as any).stackexchange_count ?? 0;
+          const discCount = (invResult as any).discourse_count     ?? 0;
+
+          // Build a per-source breakdown sentence only for sources that returned records
+          const parts: string[] = [];
+          if (newsCount > 0)  parts.push(`${newsCount} news article${newsCount !== 1 ? "s" : ""} from GDELT`);
+          if (hnCount > 0)    parts.push(`${hnCount} item${hnCount !== 1 ? "s" : ""} from Hacker News`);
+          if (bskyCount > 0)  parts.push(`${bskyCount} post${bskyCount !== 1 ? "s" : ""} from Bluesky`);
+          if (devCount > 0)   parts.push(`${devCount} article${devCount !== 1 ? "s" : ""} from DEV Community`);
+          if (seCount > 0)    parts.push(`${seCount} question${seCount !== 1 ? "s" : ""} from Stack Exchange`);
+          if (discCount > 0)  parts.push(`${discCount} topic${discCount !== 1 ? "s" : ""} from Discourse`);
+
+          const breakdown = parts.length === 0
+            ? "No records were returned by any source."
+            : parts.join("; ") + ".";
+
+          return (
+            <p>
+              This investigation examined public online discourse relating to <b>"{topic}"</b>.
+              A total of <b>{totalRecords} record{totalRecords !== 1 ? "s" : ""}</b> were collected
+              and classified across all active sources: {breakdown}
+              {totalRecords > 0 && <>
+                {" "}Overall classified sentiment skews{" "}
+                <b style={{ color: sentColor }}>{sentLabel}</b>{" "}
+                ({posPct}% of classified records positive, based on {posCount} positive
+                and {negCount} negative predictions
+                {uncCount > 0 ? `; ${uncCount} records were uncertain or unclassifiable` : ""}).
+                {" "}Authenticity profiling across labelled records returned a signal of{" "}
+                <b style={{ color: authColor }}>{authLabel}</b>{" "}
+                ({(authHon * 100).toFixed(0)}% honest-pattern match).
+              </>}
+              {totalRecords === 0 && <>
+                {" "}No matching records were found. The query may be too specific, the topic may
+                not have indexed public discussion, or all sources encountered errors.
+              </>}
+              {Object.keys(errors).length > 0 && (
+                <> Collection was partial — the following sources encountered errors:{" "}
+                {Object.entries(errors).map(([k]) => k).join(", ")}.</>
+              )}
+            </p>
+          );
+        })() : (
+          <p>
+            No investigation data is loaded. Navigate to the investigation screen, run a search, then
+            return here to view the generated report.
+          </p>
+        )}
+
+        {/* ── 02 Methodology ───────────────────────────────────── */}
+        <h3>02 / Methodology &amp; Source Coverage</h3>
+        <p>
+          Records were collected using the GhostSignal automated pipeline. Each source was queried
+          concurrently where rate limits permit. Hacker News and Bluesky ran in parallel (Batch 1);
+          DEV Community, Stack Exchange and Discourse followed concurrently (Batch 2); GDELT news
+          articles were retrieved sequentially to respect the API's one-request-per-five-seconds
+          rate limit, with a maximum of two attempts per investigation.
+        </p>
+        <p>
+          All records were normalised into the GHOSTSIGNAL unified schema: source identifier,
+          canonical URL, publication timestamp (UTC), author where available, engagement counts
+          (likes, comments, shares, views), and free-text content. Sentiment (Positive / Negative)
+          and authenticity (HONEST / FAKE) labels were attached by a TF-IDF + Logistic Regression
+          classifier trained on labelled review and discussion data.
+        </p>
+
+        {/* Source coverage table */}
+        {invResult && (
+          <div className="report-source-table">
+            <div className="report-source-row report-source-header">
+              <span>Source</span><span>Records</span><span>Status</span>
+            </div>
+            {[
+              { key: "gdelt",         label: "GDELT News",      count: newsCount },
+              { key: "hackernews",    label: "Hacker News",     count: hnCount },
+              { key: "bluesky",       label: "Bluesky",         count: bskyCount },
+              { key: "devcommunity",  label: "DEV Community",   count: (invResult as any).devcommunity_count ?? 0 },
+              { key: "stackexchange", label: "Stack Exchange",  count: (invResult as any).stackexchange_count ?? 0 },
+              { key: "discourse",     label: "Discourse",       count: (invResult as any).discourse_count ?? 0 },
+            ].map(row => (
+              <div className="report-source-row" key={row.key}>
+                <span style={{ color: sourceColor(row.key), fontWeight: 600 }}>{row.label}</span>
+                <span>{row.count}</span>
+                <span style={{ color: errors[row.key] ? "#c8372d" : "#22a06b", fontSize: "9px", fontFamily: "var(--mono)" }}>
+                  {errors[row.key] ? `ERROR — ${errors[row.key].substring(0, 60)}` : "OK"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── 03 Signal Activity Chart ─────────────────────────── */}
+        {totalRecords > 0 && <>
+        <h3>03 / Signal Activity Over Time</h3>
+        <p>
+          The chart below plots the volume of records observed each day across the seven-day
+          collection window. Records without a parseable publication date are distributed
+          proportionally across the window.
+          {peakDay && peakDay.all > 0 && <> The highest single-day volume was <b>{peakDay.all} record{peakDay.all !== 1 ? "s" : ""}</b> on <b>{peakDay.day}</b>.</>}
+        </p>
+
+        {timeline.length > 0 ? (
+          <div className="report-chart-wrap">
+            <div className="report-chart-label">ACTIVITY — ALL RECORDS</div>
+            <ActivityChart mode="activity" timeline={timeline}/>
+          </div>
+        ) : (
+          <div className="report-chart-empty">Timeline data unavailable — no records with parseable dates were collected.</div>
+        )}
+
+        {/* ── 04 Sentiment Over Time Chart ─────────────────────── */}
+        <h3>04 / Sentiment Distribution Over Time</h3>
+        <p>
+          The chart below overlays positive (purple) and negative (pink) record counts per day.
+          Records classified as uncertain are excluded from both series.
+          {stats && <>
+            {" "}News sentiment: <b>{stats.news.positive} positive</b>, <b>{stats.news.negative} negative</b>{" "}
+            ({stats.news.positive_pct}% positive).
+            Discussion sentiment: <b>{stats.discussions.positive} positive</b>, <b>{stats.discussions.negative} negative</b>{" "}
+            ({stats.discussions.positive_pct}% positive).
+          </>}
+        </p>
+
+        {timeline.length > 0 ? (
+          <div className="report-chart-wrap">
+            <div className="report-chart-label">SENTIMENT — POSITIVE vs NEGATIVE</div>
+            <ActivityChart mode="sentiment" timeline={timeline}/>
+            <div className="chart-legend" style={{ marginTop: "6px" }}>
+              <span><i className="legend-positive"/> Positive</span>
+              <span><i className="legend-negative"/> Negative</span>
+            </div>
+          </div>
+        ) : (
+          <div className="report-chart-empty">Sentiment timeline unavailable.</div>
+        )}
+
+        {/* ── 05 Classifier Signals ────────────────────────────── */}
+        <h3>05 / Classifier Signals</h3>
+        <p>
+          Aggregate sentiment and authenticity scores are derived from the full set of classified
+          records. Authenticity ratios are computed over records that received an authenticity label;
+          records without product context are excluded from that denominator.
+        </p>
+
+        <div className="model-output-cards" style={{ marginTop: "10px" }}>
+          <div className="model-card">
+            <div className="model-card-label">SENTIMENT</div>
+            <div className="model-card-value" style={{ color: sentColor }}>{sentLabel.toUpperCase()}</div>
+            {sentPos > 0 || sentNeg > 0 ? (
+              <div className="model-card-bar-wrap">
+                <div className="model-card-bar-row">
+                  <span>Positive</span>
+                  <div className="model-bar-track">
+                    <motion.div className="model-bar-fill model-bar-positive"
+                      initial={{ width: 0 }} whileInView={{ width: `${(sentPos * 100).toFixed(1)}%` }}
+                      viewport={{ once: true }} transition={{ duration: .9, delay: .1 }}/>
+                  </div>
+                  <b>{(sentPos * 100).toFixed(1)}%</b>
+                </div>
+                <div className="model-card-bar-row">
+                  <span>Negative</span>
+                  <div className="model-bar-track">
+                    <motion.div className="model-bar-fill model-bar-negative"
+                      initial={{ width: 0 }} whileInView={{ width: `${(sentNeg * 100).toFixed(1)}%` }}
+                      viewport={{ once: true }} transition={{ duration: .9, delay: .2 }}/>
+                  </div>
+                  <b>{(sentNeg * 100).toFixed(1)}%</b>
+                </div>
+                {stats && (
+                  <div style={{ marginTop: "6px", paddingTop: "6px", borderTop: "1px dashed var(--line)", fontSize: "9px", color: "var(--muted)", display: "flex", flexDirection: "column", gap: "3px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span>News:</span>
+                      <b>+{stats.news.positive} / −{stats.news.negative} ({stats.news.positive_pct}% pos)</b>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span>Discussions:</span>
+                      <b>+{stats.discussions.positive} / −{stats.discussions.negative} ({stats.discussions.positive_pct}% pos)</b>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : <p className="model-card-caveat">No classified records.</p>}
+            {sent?.is_uncertain && <div className="analyser-uncertain"><HelpCircle size={11}/> Low confidence</div>}
+            <p className="model-card-caveat">{sent?.caveat ?? "TF-IDF + Logistic Regression on collected records."}</p>
+          </div>
+
+          <div className="model-card">
+            <div className="model-card-label">AUTHENTICITY</div>
+            <div className="model-card-value" style={{ color: authColor }}>{authLabel.toUpperCase()}</div>
+            {authHon > 0 || authFake > 0 ? (
+              <div className="model-card-bar-wrap">
+                <div className="model-card-bar-row">
+                  <span>Honest</span>
+                  <div className="model-bar-track">
+                    <motion.div className="model-bar-fill model-bar-honest"
+                      initial={{ width: 0 }} whileInView={{ width: `${(authHon * 100).toFixed(1)}%` }}
+                      viewport={{ once: true }} transition={{ duration: .9, delay: .15 }}/>
+                  </div>
+                  <b>{(authHon * 100).toFixed(1)}%</b>
+                </div>
+                <div className="model-card-bar-row">
+                  <span>Fake</span>
+                  <div className="model-bar-track">
+                    <motion.div className="model-bar-fill model-bar-fake"
+                      initial={{ width: 0 }} whileInView={{ width: `${(authFake * 100).toFixed(1)}%` }}
+                      viewport={{ once: true }} transition={{ duration: .9, delay: .25 }}/>
+                  </div>
+                  <b>{(authFake * 100).toFixed(1)}%</b>
+                </div>
+              </div>
+            ) : <p className="model-card-caveat">No labelled records.</p>}
+            {auth?.is_uncertain && <div className="analyser-uncertain"><HelpCircle size={11}/> Low confidence</div>}
+            <p className="model-card-caveat">{auth?.caveat ?? "Reviewer-profile pattern signals."}</p>
+          </div>
+        </div>
+        </>}
+
+        {/* ── 06 Chronological Evidence ────────────────────────── */}
+        <h3>06 / Chronological Evidence Log</h3>
+        <p>
+          All {totalRecords} collected records are listed below in ascending date order. Each entry
+          includes the source, record type, classifier verdict, confidence score, and a direct URL
+          to the original item.
+          {totalRecords > 50 && <> Only records with a parseable publication date appear under their
+          date heading; undated records follow at the end.</>}
+        </p>
+
+        {sortedDates.length === 0 && (
+          <div className="report-chart-empty">No records collected.</div>
+        )}
+
+        {sortedDates.map(day => (
+          <div key={day} className="report-day-group">
+            <div className="report-day-header">
+              <span>{day === "Undated" ? "UNDATED RECORDS" : day}</span>
+              <span>{byDate[day].length} record{byDate[day].length !== 1 ? "s" : ""}</span>
+            </div>
+            {byDate[day].map((rec: any, idx: number) => {
+              const isPos   = rec.predicted_label === "Positive";
+              const isNeg   = rec.predicted_label === "Negative";
+              const badgeC  = isPos ? "#22a06b" : isNeg ? "#c8372d" : "#8d55df";
+              const confPct = rec.confidence ? `${(rec.confidence * 100).toFixed(0)}%` : null;
+              const title   = (rec.title   || "").trim();
+              const content = (rec.content || "").trim();
+              const show    = content && content !== title;
+              const uid     = rec.id ? `${rec.id}-${idx}` : `${rec.source}-${day}-${idx}`;
+              return (
+                <div key={uid} className="report-evidence-row">
+                  <div className="report-evidence-meta">
+                    <span style={{ color: sourceColor(rec.source), fontWeight: 700, textTransform: "uppercase", fontSize: "8.5px", fontFamily: "var(--mono)" }}>
+                      {sourceLabel(rec.source)}
+                    </span>
+                    {rec.metadata?.item_type && (
+                      <span className="report-evidence-type">{rec.metadata.item_type}</span>
+                    )}
+                    {rec.author && <span className="report-evidence-author">@{rec.author}</span>}
+                    <span style={{ marginLeft: "auto", fontSize: "8px", fontFamily: "var(--mono)", color: "var(--muted)" }}>
+                      {rec.published_at ? rec.published_at.substring(0, 16).replace("T", " ") : ""}
+                    </span>
+                  </div>
+                  {title && (
+                    <div style={{ fontSize: "11.5px", fontWeight: 600, color: "#171716", lineHeight: 1.4, margin: "4px 0 2px" }}>
+                      {title}
+                    </div>
+                  )}
+                  {show && (
+                    <div style={{ fontSize: "10.5px", color: "#4b5563", lineHeight: 1.5, marginBottom: "4px" }}>
+                      {content.length > 320 ? content.substring(0, 320) + "…" : content}
+                    </div>
+                  )}
+                  <div className="report-evidence-footer">
+                    <span style={{ color: badgeC, fontWeight: 700, fontSize: "8.5px", fontFamily: "var(--mono)" }}>
+                      {rec.predicted_label ? rec.predicted_label.toUpperCase() : "UNCLASSIFIED"}
+                      {confPct && <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: "4px" }}>({confPct})</span>}
+                    </span>
+                    {rec.likes != null    && <span className="report-evidence-stat">♥ {rec.likes}</span>}
+                    {rec.comments != null && <span className="report-evidence-stat">💬 {rec.comments}</span>}
+                    {rec.views != null    && <span className="report-evidence-stat">👁 {rec.views}</span>}
+                    {rec.url && (
+                      <a href={rec.url} target="_blank" rel="noopener noreferrer" className="report-evidence-link">
+                        Source <ArrowUpRight size={10}/>
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {/* ── 07 Key Observations ──────────────────────────────── */}
+        <h3>07 / Key Observations</h3>
+        <ol className="report-observations-list">
+          <li>
+            <b>Collection scope.</b>{" "}
+            {totalRecords === 0
+              ? "No records were collected. All sources either returned no results for this query or encountered errors."
+              : <>
+                  {totalRecords} records were retrieved:{" "}
+                  {newsCount > 0 && `${newsCount} GDELT news articles; `}
+                  {hnCount > 0 && `${hnCount} Hacker News items; `}
+                  {bskyCount > 0 && `${bskyCount} Bluesky posts; `}
+                  {((invResult as any)?.devcommunity_count ?? 0) > 0 && `${(invResult as any).devcommunity_count} DEV Community articles; `}
+                  {((invResult as any)?.stackexchange_count ?? 0) > 0 && `${(invResult as any).stackexchange_count} Stack Exchange questions; `}
+                  {((invResult as any)?.discourse_count ?? 0) > 0 && `${(invResult as any).discourse_count} Discourse topics.`}
+                </>
+            }
+          </li>
+          {totalRecords > 0 && <>
+            <li>
+              <b>Sentiment distribution.</b> Of the {posCount + negCount} classified records,{" "}
+              {posCount} ({posPct}%) were labelled Positive and {negCount} (
+              {posCount + negCount > 0 ? (100 - posPct) : 0}%) Negative.
+              {uncCount > 0 ? ` ${uncCount} records were uncertain or could not be classified.` : ""}
+            </li>
+            {stats && (
+              <li>
+                <b>Source-level sentiment.</b> News records were {stats.news.positive_pct}% positive
+                ({stats.news.positive} pos, {stats.news.negative} neg). Discussion records were{" "}
+                {stats.discussions.positive_pct}% positive ({stats.discussions.positive} pos,{" "}
+                {stats.discussions.negative} neg).
+              </li>
+            )}
+            {peakDay && peakDay.all > 0 && (
+              <li>
+                <b>Activity peak.</b> The highest single-day record volume was{" "}
+                <b>{peakDay.all}</b> on <b>{peakDay.day}</b> (
+                {peakDay.positive} positive, {peakDay.negative} negative).
+              </li>
+            )}
+            <li>
+              <b>Authenticity signal.</b> {(authHon * 100).toFixed(0)}% of labelled records matched
+              an honest-profile pattern; {(authFake * 100).toFixed(0)}% matched a fake-profile
+              pattern. This reflects reviewer-associated linguistic patterns, not verified fraud.
+            </li>
+          </>}
+          {Object.keys(errors).length > 0 && (
+            <li>
+              <b>Partial collection.</b> The following sources encountered errors:{" "}
+              {Object.entries(errors).map(([k, v]) => `${k} (${v.substring(0, 80)})`).join("; ")}.
+            </li>
+          )}
+          <li>
+            <b>Limitations.</b> The earliest collected record is not necessarily the origin of a
+            narrative. Similarity between records is a signal to investigate further, not proof of
+            coordination. Engagement counts are presented without normalisation.
+          </li>
+        </ol>
+
+        {/* ── Footer ───────────────────────────────────────────── */}
+        <div className="report-doc-foot">
+          <span>GHOSTSIGNAL · {invId} · {dateStr}</span>
+          <span>Generated from live investigation data · {totalRecords} records</span>
+        </div>
+
+      </article>
+
+      <div className="report-actions">
+        <button className="outline-action" onClick={onBack}><ArrowLeft size={14}/> Back to findings</button>
+      </div>
+    </motion.main>
+  );
 }
 
 function ReportsPage({ topic, investigationId, sources, onOpenReport }: { topic: string; investigationId?: string; sources?: string[]; onOpenReport: () => void }) {
@@ -956,6 +1416,7 @@ export default function App() {
           key="report"
           topic={topic}
           investigationId={invResult?.investigation_id}
+          invResult={invResult}
           onBack={() => navigate("results")}
         />
       )}

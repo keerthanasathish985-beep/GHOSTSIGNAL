@@ -244,9 +244,9 @@ class TestHNCollectorPipeline(unittest.TestCase):
         """Verify identical Algolia objectIDs are deduplicated across calls."""
         duplicate_hits = {
             "hits": [
-                {"objectID": "999", "title": "First Instance", "created_at": "2026-11-17T00:00:00Z"},
-                {"objectID": "999", "title": "Duplicate Instance", "created_at": "2026-11-17T00:00:00Z"},
-                {"objectID": "1000", "title": "Distinct Story", "created_at": "2026-11-17T01:00:00Z"},
+                {"objectID": "999", "title": "First test instance", "created_at": "2026-11-17T00:00:00Z"},
+                {"objectID": "999", "title": "Duplicate test instance", "created_at": "2026-11-17T00:00:00Z"},
+                {"objectID": "1000", "title": "Distinct test story", "created_at": "2026-11-17T01:00:00Z"},
             ],
             "nbPages": 1,
         }
@@ -262,16 +262,16 @@ class TestHNCollectorPipeline(unittest.TestCase):
         """Verify that requests span across multiple pages until limit is reached."""
         page_0 = {
             "hits": [
-                {"objectID": "101", "title": "Story 1"},
-                {"objectID": "102", "title": "Story 2"},
+                {"objectID": "101", "title": "Test story one"},
+                {"objectID": "102", "title": "Test story two"},
             ],
             "page": 0,
             "nbPages": 2,
         }
         page_1 = {
             "hits": [
-                {"objectID": "103", "title": "Story 3"},
-                {"objectID": "104", "title": "Story 4"},
+                {"objectID": "103", "title": "Test story three"},
+                {"objectID": "104", "title": "Test story four"},
             ],
             "page": 1,
             "nbPages": 2,

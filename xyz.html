@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>GHOSTSIGNAL — Technical Presentation</title>
+<style>
+  :root{
+    --bg:#0d0d0f;--surface:#13131a;--surface2:#1c1c26;--border:#2a2a38;
+    --purple:#9d6df0;--pink:#e96cb4;--green:#2ec27e;--yellow:#f5e44a;
+    --text:#e8e4f0;--muted:#7a7490;--mono:"IBM Plex Mono",monospace;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;font-size:15px}
+
+  /* ── Layout ── */
+  .slide{
+    min-height:100vh;padding:60px clamp(24px,6vw,100px);
+    border-bottom:1px solid var(--border);
+    display:flex;flex-direction:column;justify-content:center;
+    position:relative;overflow:hidden;
+  }
+  .slide::before{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(ellipse at 80% 20%,rgba(157,109,240,.07),transparent 60%),
+               radial-gradient(ellipse at 10% 80%,rgba(233,108,180,.05),transparent 55%);
+  }
+
+  /* ── Numbers ── */
+  .slide-num{
+    font:600 10px var(--mono);letter-spacing:.15em;color:var(--muted);
+    margin-bottom:28px;display:flex;align-items:center;gap:10px;
+  }
+  .slide-num::after{content:"";flex:1;height:1px;background:var(--border)}
+
+  /* ── Headings ── */
+  h1{font-size:clamp(38px,5vw,72px);font-weight:700;letter-spacing:-.03em;line-height:1}
+  h2{font-size:clamp(22px,3vw,38px);font-weight:700;letter-spacing:-.02em;margin-bottom:16px}
+  h3{font-size:16px;font-weight:600;color:var(--purple);text-transform:uppercase;
+     letter-spacing:.08em;margin-bottom:10px;margin-top:28px}
+  h4{font-size:13px;font-weight:600;color:var(--pink);text-transform:uppercase;
+     letter-spacing:.07em;margin-bottom:6px;margin-top:18px}
+
+  .accent{color:var(--purple)}
+  .pink{color:var(--pink)}
+  .green{color:var(--green)}
+  .yellow{color:var(--yellow)}
+  .muted{color:var(--muted)}
+
+  /* ── Typography ── */
+  p{color:#c0bbd0;max-width:720px;margin-bottom:12px}
+  code{font-family:var(--mono);font-size:.88em;color:var(--yellow);
+       background:#1f1f2e;padding:2px 6px;border-radius:3px}
+  .mono{font-family:var(--mono);font-size:13px}
+
+  /* ── Formula block ── */
+  .formula{
+    background:#111118;border:1px solid var(--border);border-left:3px solid var(--purple);
+    padding:14px 20px;border-radius:4px;font-family:var(--mono);font-size:13px;
+    color:#d4ceec;margin:12px 0;white-space:pre-wrap;line-height:1.9;
+  }
+  .formula .label{color:var(--muted);font-size:11px}
+
+  /* ── Cards ── */
+  .card-grid{display:grid;gap:16px;margin-top:16px}
+  .card-grid.two{grid-template-columns:1fr 1fr}
+  .card-grid.three{grid-template-columns:repeat(3,1fr)}
+  .card-grid.four{grid-template-columns:repeat(4,1fr)}
+  .card{
+    background:var(--surface);border:1px solid var(--border);
+    padding:20px 22px;border-radius:6px;
+  }
+  .card.purple{border-left:3px solid var(--purple)}
+  .card.pink{border-left:3px solid var(--pink)}
+  .card.green{border-left:3px solid var(--green)}
+  .card.yellow{border-left:3px solid var(--yellow)}
+  .card-title{font:600 11px var(--mono);letter-spacing:.1em;color:var(--muted);
+              text-transform:uppercase;margin-bottom:8px}
+  .card-val{font-size:28px;font-weight:700;line-height:1}
+  .card-sub{font:12px var(--mono);color:var(--muted);margin-top:4px}
+
+  /* ── Pipeline ── */
+  .pipeline{display:flex;align-items:center;gap:0;margin:24px 0;flex-wrap:wrap}
+  .pipe-step{
+    background:var(--surface2);border:1px solid var(--border);
+    padding:14px 18px;flex:1;min-width:110px;position:relative;
+  }
+  .pipe-step::after{
+    content:"→";position:absolute;right:-16px;top:50%;transform:translateY(-50%);
+    color:var(--purple);font-size:18px;font-weight:700;z-index:1;
+  }
+  .pipe-step:last-child::after{display:none}
+  .pipe-step-num{font:700 10px var(--mono);color:var(--purple);letter-spacing:.1em;margin-bottom:4px}
+  .pipe-step-label{font-size:12px;font-weight:600;color:var(--text)}
+  .pipe-step-sub{font:10px var(--mono);color:var(--muted);margin-top:3px}
+
+  /* ── Table ── */
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+  th{text-align:left;font:600 10px var(--mono);color:var(--muted);letter-spacing:.08em;
+     padding:8px 12px;border-bottom:1px solid var(--border);text-transform:uppercase}
+  td{padding:9px 12px;border-bottom:1px solid var(--border);color:#c0bbd0;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td code{font-size:.82em}
+
+  /* ── List ── */
+  ul.spec{list-style:none;margin-top:8px}
+  ul.spec li{
+    padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;
+    display:flex;gap:10px;align-items:baseline;color:#c0bbd0;
+  }
+  ul.spec li::before{content:"▸";color:var(--purple);font-size:10px;flex-shrink:0}
+
+  /* ── Badge ── */
+  .badge{
+    display:inline-block;font:600 9px var(--mono);letter-spacing:.1em;
+    padding:3px 8px;border-radius:3px;text-transform:uppercase;margin-right:5px;
+  }
+  .badge.p{background:#1a2e24;color:var(--green)}
+  .badge.n{background:#2e1a1a;color:#e05050}
+  .badge.h{background:#1a1a2e;color:var(--purple)}
+
+  /* ── Cover ── */
+  .cover-kicker{font:600 11px var(--mono);letter-spacing:.2em;color:var(--muted);margin-bottom:20px}
+  .cover-title{font-size:clamp(52px,8vw,96px);font-weight:700;letter-spacing:-.04em;line-height:.92;margin-bottom:28px}
+  .cover-title span{color:var(--purple)}
+  .cover-subtitle{font-size:16px;color:#9994b0;max-width:600px;line-height:1.7}
+  .cover-tags{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}
+  .tag{border:1px solid var(--border);padding:6px 14px;font:11px var(--mono);
+       color:var(--muted);letter-spacing:.06em}
+
+  /* ── Divider line ── */
+  .rule{height:1px;background:var(--border);margin:20px 0}
+
+  /* ── Responsive ── */
+  @media(max-width:700px){
+    .card-grid.two,.card-grid.three,.card-grid.four{grid-template-columns:1fr}
+    .pipeline{flex-direction:column}
+    .pipe-step::after{content:"↓";right:50%;bottom:-18px;top:auto;transform:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 1 — COVER
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide" id="cover">
+  <div class="cover-kicker">TECHNICAL PRESENTATION · 2026</div>
+  <div class="cover-title">GHOST<span>SIGNAL</span><br/>.</div>
+  <p class="cover-subtitle">
+    A cross-platform digital influence and narrative intelligence system —
+    built to collect, classify, and report on public online discourse
+    using machine learning, multi-source APIs, and a real-time investigation pipeline.
+  </p>
+  <div class="cover-tags">
+    <span class="tag">NLP · TF-IDF</span>
+    <span class="tag">LOGISTIC REGRESSION</span>
+    <span class="tag">MULTI-SOURCE COLLECTION</span>
+    <span class="tag">REACT + FLASK</span>
+    <span class="tag">SKLEARN PIPELINE</span>
+    <span class="tag">GROUP-AWARE ML</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 2 — WHAT WE BUILT & WHY
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">01 / PROBLEM & PURPOSE</div>
+  <h2>What we built, and why it matters</h2>
+
+  <p>
+    Online information about any topic — a brand, an event, a product, an institution — is
+    scattered across news sites, tech forums, social media, Q&amp;A platforms, and developer
+    communities. Investigating it manually means visiting each site, judging relevance by
+    eye, and carrying context across browser tabs. There is no structured output and no
+    provenance.
+  </p>
+  <p>
+    GHOSTSIGNAL solves this in a single query: enter any topic, get a fully sourced,
+    timestamped, ML-classified investigation report in under 60 seconds.
+  </p>
+
+  <div class="rule"></div>
+
+  <div class="card-grid two">
+    <div class="card purple">
+      <div class="card-title">The problem</div>
+      <ul class="spec">
+        <li>Topic research requires 6+ separate sites manually</li>
+        <li>No consistent schema across sources</li>
+        <li>No sentiment signal without reading everything</li>
+        <li>No timeline — impossible to see when narratives started</li>
+        <li>Authenticity patterns invisible at scale</li>
+      </ul>
+    </div>
+    <div class="card pink">
+      <div class="card-title">What GHOSTSIGNAL does</div>
+      <ul class="spec">
+        <li>Queries 6 sources concurrently in one operation</li>
+        <li>Normalises all records to one unified schema</li>
+        <li>Attaches ML sentiment + authenticity labels per record</li>
+        <li>Builds a 7-day activity timeline from real timestamps</li>
+        <li>Generates a structured, evidence-linked report</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 3 — FULL SYSTEM PIPELINE
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">02 / SYSTEM ARCHITECTURE</div>
+  <h2>End-to-end investigation pipeline</h2>
+  <p>Every investigation runs the same deterministic pipeline. Failures at any stage are isolated — one failed source never blocks others.</p>
+
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-step-num">01</div>
+      <div class="pipe-step-label">User query</div>
+      <div class="pipe-step-sub">React frontend<br/>POST /api/investigate</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">02</div>
+      <div class="pipe-step-label">Batch 1 collect</div>
+      <div class="pipe-step-sub">HN + Bluesky<br/>concurrent threads</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">03</div>
+      <div class="pipe-step-label">Batch 2 collect</div>
+      <div class="pipe-step-sub">DEV · SE · Discourse<br/>concurrent threads</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">04</div>
+      <div class="pipe-step-label">GDELT collect</div>
+      <div class="pipe-step-sub">Sequential<br/>rate-limited news</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">05</div>
+      <div class="pipe-step-label">Normalise</div>
+      <div class="pipe-step-sub">Unified schema<br/>dedup + clean</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">06</div>
+      <div class="pipe-step-label">ML classify</div>
+      <div class="pipe-step-sub">Sentiment +<br/>Authenticity</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">07</div>
+      <div class="pipe-step-label">Aggregate</div>
+      <div class="pipe-step-sub">Stats · timeline<br/>per-source counts</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">08</div>
+      <div class="pipe-step-label">Report</div>
+      <div class="pipe-step-sub">Charts · evidence<br/>log · export</div>
+    </div>
+  </div>
+
+  <div class="card-grid three" style="margin-top:20px">
+    <div class="card green">
+      <div class="card-title">Concurrency model</div>
+      <p style="font-size:12px;margin:0">
+        Batch 1 (HN + Bluesky) runs in a <code>ThreadPoolExecutor(2)</code>.
+        Batch 2 (DEV + SE + Discourse) runs in a <code>ThreadPoolExecutor(3)</code>.
+        GDELT runs sequentially after both batches complete to respect its
+        1 req/5 s rate limit. Total wall-clock time ≈ max(slowest_batch1, slowest_batch2) + GDELT.
+      </p>
+    </div>
+    <div class="card purple">
+      <div class="card-title">Schema normalisation</div>
+      <p style="font-size:12px;margin:0">
+        Every source record is mapped to 17 canonical fields:
+        <code>id</code>, <code>source</code>, <code>content</code>, <code>title</code>,
+        <code>url</code>, <code>published_at</code>, <code>author</code>,
+        <code>likes</code>, <code>comments</code>, <code>views</code>,
+        <code>predicted_label</code>, <code>confidence</code>, <code>metadata.provenance</code>…
+        Missing fields are <code>null</code>, never fabricated.
+      </p>
+    </div>
+    <div class="card yellow">
+      <div class="card-title">Failure isolation</div>
+      <p style="font-size:12px;margin:0">
+        Each collector's future is resolved inside its own <code>try/except</code>.
+        A collector raising any exception writes to <code>collector_errors[key]</code>
+        and execution continues. Status is <code>"partial"</code> if any source
+        failed but records were still collected; <code>"error"</code> only
+        if all sources failed.
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 4 — DATA SOURCES
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">03 / DATA SOURCES</div>
+  <h2>Six public-API collectors, zero authentication</h2>
+  <p>All six collectors use public, unauthenticated endpoints. No API keys, no OAuth, no rate-limit accounts required.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Source</th><th>API endpoint</th><th>What is collected</th><th>Relevance filter</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="accent">Hacker News</span></td>
+        <td><code>hn.algolia.com/api/v1/search_by_date</code></td>
+        <td>Stories + comments. Title, score, comment count, URL, author, timestamp.</td>
+        <td>Post-filter: whole-word <code>\btoken\b</code> match on distinctive query tokens (stop-words stripped)</td>
+      </tr>
+      <tr>
+        <td><span class="pink">Bluesky</span></td>
+        <td><code>api.bsky.app/xrpc/app.bsky.feed.searchPosts</code></td>
+        <td>Posts. Text, author handle, DID, likes, replies, reposts, external links.</td>
+        <td>Native API search — no post-filter needed</td>
+      </tr>
+      <tr>
+        <td style="color:#22a06b">DEV Community</td>
+        <td><code>dev.to/api/articles/search</code></td>
+        <td>Articles. Title, description, author, reactions, comments, tags, URL.</td>
+        <td>Post-filter: query token present in title / description / tags</td>
+      </tr>
+      <tr>
+        <td style="color:#f97316">Stack Exchange</td>
+        <td><code>api.stackexchange.com/2.3/search/advanced</code></td>
+        <td>Questions. Title, body excerpt, tags, score, answer count, view count.</td>
+        <td>Post-filter: query token in title or tags</td>
+      </tr>
+      <tr>
+        <td style="color:#ec4899">Discourse</td>
+        <td><code>&lt;forum&gt;/search.json</code></td>
+        <td>Topics. Title, excerpt, author, likes, reply count, views, tags.</td>
+        <td>Post-filter: search API result + token in title/excerpt. No /latest fallback.</td>
+      </tr>
+      <tr>
+        <td style="color:#7c3aed">GDELT News</td>
+        <td><code>api.gdeltproject.org/api/v2/doc/doc</code></td>
+        <td>News articles. Title, URL, domain, publication date.</td>
+        <td>Native API fulltext search; throttled at 1 req/6 s, max 2 attempts</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin-top:28px">Relevance post-filter — why it exists</h3>
+  <p>
+    Algolia (HN), DEV, and SE search APIs use token-based matching:
+    a query like "GSSS institute of engineering and technology" returns
+    posts containing any of those words individually. The post-filter strips
+    generic technical vocabulary ("engineering", "technology", "institute")
+    and requires the remaining distinctive tokens to appear as whole words
+    (<code>\b</code> boundary) in the hit's text.
+    For "amazon" this prevents "amazynk" from matching.
+  </p>
+  <div class="formula">_distinctive_tokens("amazon")            → ['amazon']
+_distinctive_tokens("GSSS institute of engineering")  → ['gsss']
+_distinctive_tokens("artificial intelligence")        → ['artificial', 'intelligence']
+
+Relevance check (whole-word):
+  re.search(r"\bamazon\b", "amazynk repository")  → None   ✗ rejected
+  re.search(r"\bamazon\b", "amazon aws pricing")  → match  ✓ accepted</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 5 — ML MODEL: WHAT & WHY
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">04 / MACHINE LEARNING — OVERVIEW</div>
+  <h2>Two independent classifiers</h2>
+
+  <div class="card-grid two">
+    <div class="card purple">
+      <div class="card-title">Sentiment classifier</div>
+      <p>Classifies collected text as <strong>Positive</strong> or <strong>Negative</strong>.</p>
+      <p>Labels are <em>rating-derived</em>: 1–2 ★ → Negative, 4–5 ★ → Positive. 3-star reviews are excluded as ambiguous.</p>
+      <p>Training data: Amazon reviews + Google reviews (combined JSONL).</p>
+    </div>
+    <div class="card pink">
+      <div class="card-title">Authenticity classifier</div>
+      <p>Classifies reviewer profiles as <strong>HONEST</strong> or <strong>FAKE</strong>.</p>
+      <p>Labels are <em>reviewer-associated</em>: a reviewer flagged fake has that label propagated to all their reviews. This model identifies writing patterns, not individual fraud.</p>
+      <p>Training data: Amazon reviews (labelled subset only).</p>
+    </div>
+  </div>
+
+  <h3>Algorithm: TF-IDF → Logistic Regression (sklearn Pipeline)</h3>
+  <p>
+    Both classifiers use the same two-stage sklearn <code>Pipeline</code>:
+    a TF-IDF vectoriser transforms raw text into a sparse numerical matrix,
+    then Logistic Regression makes the classification decision.
+    Both steps are fitted end-to-end so the vectoriser's vocabulary is
+    learned only from training data, not from test data.
+  </p>
+
+  <div class="card-grid two" style="margin-top:16px">
+    <div class="card green">
+      <div class="card-title">Why TF-IDF?</div>
+      <ul class="spec">
+        <li>Scales to tens of thousands of reviews without GPU</li>
+        <li>Interpretable — the highest-weight features are readable words</li>
+        <li>Sparse matrix: memory-efficient on large vocabularies</li>
+        <li>Proven baseline for short-text classification tasks</li>
+        <li>No pretrained model dependency — fully self-contained</li>
+      </ul>
+    </div>
+    <div class="card yellow">
+      <div class="card-title">Why Logistic Regression?</div>
+      <ul class="spec">
+        <li>Fast to train (&lt;30 s on the full dataset)</li>
+        <li>Returns calibrated <code>predict_proba</code> scores</li>
+        <li>Class-weight balancing handles skewed class distributions</li>
+        <li>L2 regularisation prevents overfitting on rare n-grams</li>
+        <li><code>solver=lbfgs</code> handles multi-class natively</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 6 — TF-IDF MATHEMATICS
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">05 / ALGORITHM — TF-IDF</div>
+  <h2>How TF-IDF works</h2>
+  <p>
+    TF-IDF (Term Frequency – Inverse Document Frequency) converts a text into a
+    numerical vector where each dimension is a word or 2-word phrase (n-gram).
+    Words that appear often in one document but rarely across all documents get
+    high weight; common words like "the" get low weight.
+  </p>
+
+  <h3>Term Frequency (TF)</h3>
+  <p>How often a term appears in the document, normalised by document length.</p>
+  <div class="formula">TF(t, d)  =  count(t in d)  /  total_terms(d)
+
+Example: "great product great price" (4 words)
+  TF("great", d)   =  2 / 4  =  0.50
+  TF("product", d) =  1 / 4  =  0.25</div>
+
+  <h3>Inverse Document Frequency (IDF)</h3>
+  <p>Penalises words that appear in many documents (common words carry little information).</p>
+  <div class="formula">IDF(t, D)  =  log( (1 + N) / (1 + df(t)) ) + 1
+<span class="label">where N = total documents, df(t) = number of documents containing term t</span>
+
+<span class="label">Sublinear TF scaling (used in GHOSTSIGNAL):</span>
+  TF_sublinear(t, d) = 1 + log(TF(t, d))   if count > 0, else 0
+  <span class="label">→ dampens effect of a word appearing 100× vs 10× in one document</span></div>
+
+  <h3>TF-IDF weight</h3>
+  <div class="formula">TFIDF(t, d, D)  =  TF_sublinear(t, d)  ×  IDF(t, D)
+
+<span class="label">Each document becomes a sparse vector in ℝ^50000 (max_features=50,000)
+L2-normalised so dot products equal cosine similarity.</span></div>
+
+  <h3>GHOSTSIGNAL configuration</h3>
+  <table>
+    <thead><tr><th>Parameter</th><th>Value</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr><td><code>max_features</code></td><td>50,000</td><td>Covers most review vocabulary; limits memory</td></tr>
+      <tr><td><code>ngram_range</code></td><td>(1, 2)</td><td>Captures unigrams ("broken") and bigrams ("stopped working")</td></tr>
+      <tr><td><code>sublinear_tf</code></td><td>True</td><td>Log-scale TF dampens term repetition</td></tr>
+      <tr><td><code>min_df</code></td><td>2</td><td>Ignore terms appearing in only 1 document (noise)</td></tr>
+      <tr><td><code>strip_accents</code></td><td>"unicode"</td><td>Normalises accented characters</td></tr>
+      <tr><td><code>analyzer</code></td><td>"word"</td><td>Word-level tokenisation</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 7 — LOGISTIC REGRESSION MATHEMATICS
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">06 / ALGORITHM — LOGISTIC REGRESSION</div>
+  <h2>How Logistic Regression classifies text</h2>
+
+  <p>
+    Given the TF-IDF vector <strong>x</strong> ∈ ℝ⁵⁰⁰⁰⁰, Logistic Regression learns
+    a weight vector <strong>w</strong> for each class and applies the sigmoid / softmax
+    function to produce class probabilities.
+  </p>
+
+  <h3>Binary case (Positive vs Negative)</h3>
+  <div class="formula">z  =  w · x  +  b          <span class="label">(linear combination of TF-IDF features)</span>
+
+P(Positive | x)  =  σ(z)  =  1 / (1 + e^(−z))
+P(Negative | x)  =  1 − P(Positive | x)
+
+Decision:  ŷ  =  Positive   if P(Positive | x) > 0.5
+                 Negative   otherwise</div>
+
+  <h3>Training objective — log-loss minimisation</h3>
+  <div class="formula">L(w)  =  −(1/N) Σ [ yᵢ·log(ŷᵢ) + (1−yᵢ)·log(1−ŷᵢ) ]  +  λ·‖w‖²
+         <span class="label">Cross-entropy loss                               L2 regularisation (C=1.0 → λ=1)</span>
+
+<span class="label">L2 term ‖w‖² penalises large weights → prevents overfitting on rare n-grams.
+C = 1/λ: larger C = less regularisation. GHOSTSIGNAL uses C=1.0 (default balance).</span></div>
+
+  <h3>Class imbalance handling</h3>
+  <div class="formula">class_weight = "balanced"
+  wᵢ  =  N / (K × nᵢ)
+  <span class="label">where N = total samples, K = number of classes, nᵢ = samples in class i</span>
+  <span class="label">→ minority class gets higher loss contribution, forcing the model to learn it</span></div>
+
+  <h3>Uncertainty threshold</h3>
+  <div class="formula">confidence  =  max( P(Positive|x), P(Negative|x) )
+
+label = predicted_class      if confidence ≥ 0.60
+label = "uncertain"          if confidence  < 0.60
+
+<span class="label">0.60 is GHOSTSIGNAL's UNCERTAINTY_THRESHOLD.
+A result below this is shown with a "Low confidence" flag in the UI.</span></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 8 — TRAINING PIPELINE
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">07 / TRAINING PIPELINE</div>
+  <h2>How the models were trained</h2>
+
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-step-num">01</div>
+      <div class="pipe-step-label">Load JSONL</div>
+      <div class="pipe-step-sub">Amazon + Google<br/>review records</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">02</div>
+      <div class="pipe-step-label">Label assignment</div>
+      <div class="pipe-step-sub">Rating → Sentiment<br/>Reviewer → Auth.</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">03</div>
+      <div class="pipe-step-label">Group split</div>
+      <div class="pipe-step-sub">GroupShuffleSplit<br/>80/20 by author</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">04</div>
+      <div class="pipe-step-label">Pipeline fit</div>
+      <div class="pipe-step-sub">TF-IDF → LR<br/>on train set only</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">05</div>
+      <div class="pipe-step-label">Evaluate</div>
+      <div class="pipe-step-sub">Precision, Recall<br/>F1, Confusion matrix</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">06</div>
+      <div class="pipe-step-label">Save artifact</div>
+      <div class="pipe-step-sub">joblib .joblib<br/>models/ directory</div>
+    </div>
+  </div>
+
+  <h3>Group-aware train/test split — why it matters</h3>
+  <p>
+    A naive random split would let the same reviewer's reviews appear in both
+    training and test sets. Because a reviewer's writing style is consistent,
+    the model would learn to recognise specific authors rather than
+    genuine sentiment patterns. This inflates test accuracy without improving
+    generalisation. GHOSTSIGNAL uses <code>GroupShuffleSplit</code> to guarantee
+    every reviewer is in either train <em>or</em> test, never both.
+  </p>
+  <div class="formula">GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+<span class="label">→ reviewer A's 47 reviews all go to train OR all go to test
+→ no data leakage across the split boundary
+→ if split fails (too few groups), RuntimeError is raised — no silent fallback</span></div>
+
+  <h3>Label rules</h3>
+  <table>
+    <thead><tr><th>Classifier</th><th>Label</th><th>Source rule</th><th>What is excluded</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Sentiment</td>
+        <td><span class="badge p">POSITIVE</span><span class="badge n">NEGATIVE</span></td>
+        <td>rating 4–5 → Positive; rating 1–2 → Negative</td>
+        <td>3-star reviews (ambiguous boundary)</td>
+      </tr>
+      <tr>
+        <td>Authenticity</td>
+        <td><span class="badge h">HONEST</span><span class="badge n">FAKE</span></td>
+        <td><code>reviewer_labeled_honest=1</code> → HONEST; <code>reviewer_labeled_fake=1</code> → FAKE</td>
+        <td>Both=0, both null, contradictory, or partial null records</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 9 — INFERENCE PIPELINE
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">08 / INFERENCE</div>
+  <h2>How a collected record gets classified</h2>
+
+  <p>After collection, every record's <code>content</code> (or <code>title</code> fallback) is passed through both classifiers.</p>
+
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-step-num">01</div>
+      <div class="pipe-step-label">Raw text</div>
+      <div class="pipe-step-sub">content / title<br/>field of record</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">02</div>
+      <div class="pipe-step-label">TF-IDF transform</div>
+      <div class="pipe-step-sub">50k-dim sparse<br/>vector</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">03</div>
+      <div class="pipe-step-label">predict_proba()</div>
+      <div class="pipe-step-sub">P(Pos), P(Neg)<br/>P(HONEST), P(FAKE)</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">04</div>
+      <div class="pipe-step-label">Threshold check</div>
+      <div class="pipe-step-sub">max_prob ≥ 0.60<br/>→ label / uncertain</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-step-num">05</div>
+      <div class="pipe-step-label">Attach to record</div>
+      <div class="pipe-step-sub">predicted_label<br/>confidence</div>
+    </div>
+  </div>
+
+  <h3>What gets written to each record</h3>
+  <div class="formula">{
+  "predicted_label": "Positive",          <span class="label">// or "Negative" / "uncertain" / "unavailable"</span>
+  "confidence":       0.87,               <span class="label">// max(predict_proba) — model score, not calibrated</span>
+  "metadata": {
+    "sentiment_probabilities": {"Positive": 0.87, "Negative": 0.13},
+    "sentiment_uncertain":     false,
+    "authenticity_label":      "HONEST",
+    "authenticity_probabilities": {"HONEST": 0.93, "FAKE": 0.07}
+  }
+}</div>
+
+  <h3>Aggregate statistics (app.py)</h3>
+  <div class="formula">classified_count = positive_count + negative_count   <span class="label">(uncertain excluded)</span>
+pos_ratio        = positive_count / classified_count
+neg_ratio        = negative_count / classified_count
+
+authenticity denominator = records with an authenticity_label  <span class="label">(not total records)</span>
+hon_ratio = hon_count / labelled_count
+<span class="label">→ discussion records without product context don't dilute the authenticity signal</span></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 10 — FRONTEND & API
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">09 / FRONTEND & API LAYER</div>
+  <h2>Technology stack</h2>
+
+  <div class="card-grid two">
+    <div>
+      <h3>Backend (Python / Flask)</h3>
+      <table>
+        <thead><tr><th>Component</th><th>Technology</th></tr></thead>
+        <tbody>
+          <tr><td>API framework</td><td><code>Flask</code> + <code>flask-cors</code></td></tr>
+          <tr><td>ML</td><td><code>scikit-learn</code> — Pipeline, TfidfVectorizer, LogisticRegression</td></tr>
+          <tr><td>Model serialisation</td><td><code>joblib</code> (compressed .joblib files)</td></tr>
+          <tr><td>Data models</td><td><code>pydantic</code> v2 (all collector + service DTOs)</td></tr>
+          <tr><td>HTTP client</td><td><code>requests</code> with per-collector Session</td></tr>
+          <tr><td>Concurrency</td><td><code>concurrent.futures.ThreadPoolExecutor</code></td></tr>
+          <tr><td>Numerical</td><td><code>numpy</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin-top:20px">API endpoints</h3>
+      <ul class="spec">
+        <li><code>GET  /api/health</code> — model readiness check</li>
+        <li><code>POST /api/analyse</code> — classify one text string</li>
+        <li><code>POST /api/analyse/batch</code> — classify up to 20 texts</li>
+        <li><code>POST /api/investigate</code> — full investigation pipeline</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Frontend (TypeScript / React)</h3>
+      <table>
+        <thead><tr><th>Component</th><th>Technology</th></tr></thead>
+        <tbody>
+          <tr><td>Framework</td><td><code>React 18</code> + <code>TypeScript</code></td></tr>
+          <tr><td>Build tool</td><td><code>Vite 6</code></td></tr>
+          <tr><td>Animations</td><td><code>Framer Motion</code></td></tr>
+          <tr><td>Icons</td><td><code>lucide-react</code></td></tr>
+          <tr><td>Routing</td><td>Hash-based (no router library)</td></tr>
+          <tr><td>Charts</td><td>Custom SVG — <code>ActivityChart</code> component</td></tr>
+          <tr><td>State</td><td><code>useState</code> + <code>useCallback</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3 style="margin-top:20px">Pages</h3>
+      <ul class="spec">
+        <li>Home — topic entry, source selection</li>
+        <li>Investigation — live stage tracker (5 stages, 1.85 s each)</li>
+        <li>Results — metrics, charts, classifier cards, evidence samples</li>
+        <li>Report — full 7-section investigation document</li>
+        <li>Analyser — single-text classifier UI</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 11 — WHAT GHOSTSIGNAL PRODUCES
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">10 / OUTPUT</div>
+  <h2>What the system produces</h2>
+
+  <div class="card-grid three">
+    <div class="card purple">
+      <div class="card-title">Per-record output</div>
+      <ul class="spec">
+        <li>Source identifier + provenance chain</li>
+        <li>Canonical URL to original item</li>
+        <li>Publication timestamp (UTC, ISO-8601)</li>
+        <li>Sentiment label + confidence score</li>
+        <li>Authenticity label (where applicable)</li>
+        <li>Engagement counts (likes, comments, views)</li>
+      </ul>
+    </div>
+    <div class="card pink">
+      <div class="card-title">Investigation summary</div>
+      <ul class="spec">
+        <li>Total records + per-source breakdown</li>
+        <li>Positive / negative / uncertain counts</li>
+        <li>% positive (across classified records)</li>
+        <li>Authenticity ratio (over labelled records)</li>
+        <li>Collector errors with error messages</li>
+        <li>Investigation status: success / partial / empty / error</li>
+      </ul>
+    </div>
+    <div class="card green">
+      <div class="card-title">Report document</div>
+      <ul class="spec">
+        <li>01 Executive summary (auto-generated prose)</li>
+        <li>02 Methodology + source coverage table</li>
+        <li>03 Activity chart (all records over 7 days)</li>
+        <li>04 Sentiment chart (positive vs negative over 7 days)</li>
+        <li>05 Classifier signal cards with probability bars</li>
+        <li>06 Chronological evidence log (all records, date-grouped)</li>
+        <li>07 Key observations with explicit limitations</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+
+  <h3>Explicit limitations enforced by design</h3>
+  <ul class="spec">
+    <li>Sentiment labels are <em>rating-derived</em>, not human-annotated sentiment</li>
+    <li>Authenticity labels are <em>reviewer-associated</em> — FAKE does not prove individual review fraud</li>
+    <li>Similarity between records is a signal to investigate, not proof of coordination</li>
+    <li>The earliest collected record is not the origin of the narrative — only the earliest <em>observed in the dataset</em></li>
+    <li>GHOSTSIGNAL does not remove, suppress, or act on any content — the report is the product</li>
+  </ul>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SLIDE 12 — SUMMARY
+════════════════════════════════════════════════════════════════════ -->
+<div class="slide">
+  <div class="slide-num">11 / SUMMARY</div>
+  <h2>Everything in one view</h2>
+
+  <div class="card-grid four">
+    <div class="card purple">
+      <div class="card-val accent">6</div>
+      <div class="card-sub">public-API collectors<br/>no auth required</div>
+    </div>
+    <div class="card pink">
+      <div class="card-val pink">2</div>
+      <div class="card-sub">ML classifiers<br/>TF-IDF + LR pipeline</div>
+    </div>
+    <div class="card green">
+      <div class="card-val green">50k</div>
+      <div class="card-sub">max TF-IDF features<br/>1–2 gram range</div>
+    </div>
+    <div class="card yellow">
+      <div class="card-val yellow">0.60</div>
+      <div class="card-sub">uncertainty threshold<br/>for label suppression</div>
+    </div>
+  </div>
+
+  <div class="card-grid two" style="margin-top:16px">
+    <div class="card">
+      <div class="card-title">Pipeline summary</div>
+      <ul class="spec">
+        <li>Query → 2 concurrent batches + sequential GDELT</li>
+        <li>All records normalised to 17-field unified schema</li>
+        <li>Both classifiers run on every record's content field</li>
+        <li>Probabilities aggregated per-source for statistics</li>
+        <li>7-day timeline built from real <code>published_at</code> timestamps</li>
+        <li>Report generated entirely from live data — no templates</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-title">Key engineering decisions</div>
+      <ul class="spec">
+        <li>GroupShuffleSplit prevents reviewer-level data leakage</li>
+        <li>Whole-word post-filter stops substring false-positives (amazynk ≠ amazon)</li>
+        <li>Failure isolation: one source error never blocks others</li>
+        <li>Authenticity denominator = labelled records, not total (prevents dilution)</li>
+        <li>GDELT rate-limit capped at 2 attempts (max_retries=1 hard-coded)</li>
+        <li>Pydantic v2 DTOs enforce schema at every collector boundary</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="rule"></div>
+  <p class="muted" style="font-size:12px;text-align:center;padding-top:8px">
+    GHOSTSIGNAL · Public-source narrative intelligence · Built with Flask, React, scikit-learn · 2026
+  </p>
+</div>
+
+</body>
+</html>

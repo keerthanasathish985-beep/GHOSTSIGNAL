@@ -227,6 +227,59 @@ def to_epoch_seconds(val: Union[datetime, date, str, int, float]) -> int:
     raise ValueError(f"Cannot parse date/timestamp value: {val}")
 
 
+
+
+# ---------------------------------------------------------------------------
+# Relevance filter helper
+# ---------------------------------------------------------------------------
+
+# Words that are extremely common on HN and in tech contexts, so they should
+# NOT be used as the sole relevance signal for multi-word queries.
+_HN_GENERIC: Set[str] = {
+    "a", "an", "and", "are", "as", "at", "be", "been", "but", "by",
+    "do", "for", "from", "has", "have", "he", "her", "him", "his",
+    "how", "if", "in", "is", "it", "its", "me", "my", "not", "of",
+    "on", "or", "our", "out", "she", "so", "than", "that", "the",
+    "their", "them", "then", "there", "they", "this", "to", "up",
+    "us", "was", "we", "were", "what", "when", "where", "who",
+    "will", "with", "you", "your",
+    "about", "after", "also", "another", "based", "because", "before",
+    "being", "between", "build", "built", "code", "coding", "come",
+    "community", "company", "could", "data", "design", "does", "each",
+    "engineering", "every", "first", "good", "great", "here", "high",
+    "implementation", "india", "information", "institute", "into",
+    "just", "know", "large", "learn", "library", "like", "line",
+    "link", "list", "little", "look", "made", "make", "many", "might",
+    "more", "most", "much", "need", "news", "next", "note", "number",
+    "open", "other", "over", "people", "point", "post", "problem",
+    "product", "public", "question", "quite", "really", "right",
+    "same", "science", "should", "since", "site", "some", "still",
+    "such", "system", "systems", "technology", "thing", "think",
+    "time", "tool", "tools", "type", "under", "university", "until",
+    "used", "user", "users", "using", "very", "want", "well", "which",
+    "while", "work", "would", "year",
+}
+
+
+def _distinctive_tokens(query: str) -> List[str]:
+    """
+    Return the tokens from *query* that are most distinctive for a relevance
+    post-filter.  Stop-words and ultra-common tech/academic words are stripped
+    so that institutional queries like 'GSSS institute of engineering and
+    technology' do not match every HN post that contains 'engineering'.
+
+    Short tokens (2-4 chars) such as acronyms ('gsss', 'mit', 'iit') are
+    always kept if they are not plain stop-words, because they are usually the
+    most specific part of an institutional query.
+
+    If every word in the query is a stop-word the full word list is returned
+    as a fallback (over-filtering is worse than no filter for simple queries).
+    """
+    words = [w.lower() for w in re.split(r"[^a-zA-Z0-9]+", query) if len(w) >= 2]
+    distinctive = [w for w in words if w not in _HN_GENERIC]
+    return distinctive if distinctive else (words if words else [query.lower().strip()])
+
+
 def parse_timespan_to_epoch(timespan: str) -> int:
     """
     Parse a relative timespan string (e.g. '24h', '7d', '30d', '1y') to a cutoff epoch timestamp.
@@ -610,15 +663,36 @@ class HackerNewsCollector:
         retrieved_at_iso: Optional[str] = None,
     ) -> List[HackerNewsRecord]:
         """
-        Fetch items for a specific tag ('story' or 'comment') across pages until target_limit is reached.
+        Fetch items for a specific tag ('story' or 'comment') across pages until
+        target_limit is reached. A relevance post-filter rejects hits that contain
+        none of the query's distinctive tokens, preventing Algolia's broad
+        tokenisation from returning unrelated results for institutional queries.
         """
         records: List[HackerNewsRecord] = []
         page = 0
         timestamp_str = retrieved_at_iso or datetime.now(timezone.utc).isoformat()
 
+        # Build the per-query relevance filter once.
+        filter_tokens = _distinctive_tokens(query)
+
+        def _is_relevant(hit: Dict[str, Any]) -> bool:
+            haystack = " ".join([
+                str(hit.get("title") or ""),
+                str(hit.get("story_title") or ""),
+                str(hit.get("comment_text") or ""),
+                str(hit.get("story_text") or ""),
+                str(hit.get("url") or ""),
+            ]).lower()
+            # Whole-word match: "amazon" must not match "amazynk" or "amazonian".
+            return any(
+                bool(re.search(r"\b" + re.escape(tok) + r"\b", haystack))
+                for tok in filter_tokens
+            )
+
         while len(records) < target_limit:
             remaining = target_limit - len(records)
-            per_page = min(self.hits_per_page, remaining)
+            # Fetch a larger page so post-filtering doesn't under-fill results.
+            per_page = min(self.hits_per_page, max(remaining * 3, 20), 1000)
 
             params = self.build_params(
                 query=query,
@@ -644,6 +718,10 @@ class HackerNewsCollector:
 
                 if deduplicate and obj_id in seen_object_ids:
                     log.debug("Skipping duplicate Algolia objectID: %s", obj_id)
+                    continue
+
+                if not _is_relevant(hit):
+                    log.debug("Skipping irrelevant HN hit %s for query '%s'", obj_id, query)
                     continue
 
                 if tag == "story":
